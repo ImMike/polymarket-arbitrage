@@ -24,6 +24,7 @@ class ApiConfig:
     polymarket_rest_url: str = "https://clob.polymarket.com"
     polymarket_ws_url: str = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
     gamma_api_url: str = "https://gamma-api.polymarket.com"
+    kalshi_api_url: str = "https://api.elections.kalshi.com/trade-api/v2"
     api_key: str = ""
     api_secret: str = ""
     passphrase: str = ""
@@ -69,6 +70,9 @@ class ModeConfig:
     """Trading mode configuration."""
     trading_mode: str = "dry_run"  # "live" or "dry_run"
     data_mode: str = "real"  # "real" or "simulation" - use simulation for demos
+    cross_platform_enabled: bool = True  # Enable cross-platform arbitrage (Polymarket + Kalshi)
+    kalshi_enabled: bool = True  # Enable Kalshi market monitoring
+    min_match_similarity: float = 0.6  # Minimum similarity score for market matching (0-1)
     dry_run_initial_balance: float = 10000.0
     simulate_fills: bool = True
     fill_probability: float = 0.8

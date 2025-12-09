@@ -38,6 +38,21 @@ class DashboardState:
         self.last_update: datetime = datetime.utcnow()
         self.started_at: datetime = datetime.utcnow()
         
+        # Cross-platform (Polymarket + Kalshi)
+        self.cross_platform: dict = {
+            "enabled": False,
+            "kalshi_markets": 0,
+            "polymarket_markets": 0,
+            "matched_pairs": 0,
+            "kalshi_orderbooks": 0,  # Number of Kalshi orderbooks fetched
+            "cross_opportunities": [],
+            "matched_pairs_data": [],  # Detailed data for display
+            "matching_progress": 0,  # Percentage of matching complete
+            "matching_checked": 0,  # Number of comparisons done
+            "matching_total": 0,  # Total comparisons to do
+            "matching_status": "idle",  # idle, matching, complete
+        }
+        
         # WebSocket connections
         self._connections: list[WebSocket] = []
     
@@ -55,6 +70,7 @@ class DashboardState:
             "stats": self.stats,
             "timing": self.timing,  # Opportunity timing stats
             "operational": self.operational,  # Operational stats
+            "cross_platform": self.cross_platform,  # Cross-platform arbitrage stats
             "is_running": self.is_running,
             "mode": self.mode,
             "last_update": self.last_update.isoformat(),
@@ -99,6 +115,29 @@ class DashboardState:
         self.trades.append(trade)
         if len(self.trades) > 500:
             self.trades = self.trades[-250:]
+    
+    def add_cross_platform_opportunity(self, opportunity: dict) -> None:
+        """Add a cross-platform arbitrage opportunity."""
+        opportunity["timestamp"] = datetime.utcnow().isoformat()
+        self.cross_platform["cross_opportunities"].append(opportunity)
+        if len(self.cross_platform["cross_opportunities"]) > 100:
+            self.cross_platform["cross_opportunities"] = self.cross_platform["cross_opportunities"][-50:]
+    
+    def update_cross_platform_stats(
+        self,
+        kalshi_markets: int,
+        polymarket_markets: int,
+        matched_pairs: int,
+        enabled: bool = True,
+        matched_pairs_data: list = None,
+    ) -> None:
+        """Update cross-platform statistics."""
+        self.cross_platform["enabled"] = enabled
+        self.cross_platform["kalshi_markets"] = kalshi_markets
+        self.cross_platform["polymarket_markets"] = polymarket_markets
+        self.cross_platform["matched_pairs"] = matched_pairs
+        if matched_pairs_data is not None:
+            self.cross_platform["matched_pairs_data"] = matched_pairs_data
 
 
 # Global state
@@ -618,8 +657,428 @@ def get_embedded_html() -> str:
         .op-stat-label {
             font-size: 0.7rem;
             color: var(--text-secondary);
+        }
+        
+        /* Cross-Platform Arbitrage Card */
+        .cross-platform-card {
+            grid-column: span 2;
+            border: 1px solid rgba(255, 165, 0, 0.3);
+        }
+        
+        .cross-platform-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .cross-platform-badge {
+            background: linear-gradient(135deg, #ff6b35, #f7931a);
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+        
+        /* Live Opportunities Feed */
+        .opportunities-feed {
+            grid-column: span 2;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        
+        .opp-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            border-left: 4px solid var(--accent-green);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .opp-card:hover {
+            transform: translateX(4px);
+            box-shadow: 0 4px 12px rgba(0, 255, 136, 0.1);
+        }
+        
+        .opp-card.cross-platform {
+            border-left-color: #f7931a;
+        }
+        
+        .opp-card.polymarket {
+            border-left-color: #8b5cf6;
+        }
+        
+        .opp-card.kalshi {
+            border-left-color: #3b82f6;
+        }
+        
+        .opp-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.75rem;
+        }
+        
+        .opp-category {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .opp-badge {
+            background: var(--bg-primary);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            font-weight: 700;
             text-transform: uppercase;
+        }
+        
+        .opp-badge.nfl { background: #1a472a; color: #4ade80; }
+        .opp-badge.nba { background: #1e3a5f; color: #60a5fa; }
+        .opp-badge.politics { background: #4a1d6a; color: #c084fc; }
+        .opp-badge.crypto { background: #5c4b1a; color: #fbbf24; }
+        .opp-badge.soccer { background: #1a3d3d; color: #2dd4bf; }
+        .opp-badge.cross { background: #5c3d1a; color: #f7931a; }
+        
+        .opp-edge {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--accent-green);
+        }
+        
+        .opp-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+        
+        .opp-market-info {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-bottom: 0.75rem;
+        }
+        
+        .opp-platforms {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        
+        .opp-platform-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem;
+            background: var(--bg-primary);
+            border-radius: 6px;
+        }
+        
+        .opp-platform-name {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        
+        .opp-platform-icon {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.6rem;
+            font-weight: 700;
+        }
+        
+        .opp-platform-icon.poly { background: #8b5cf6; }
+        .opp-platform-icon.kalshi { background: #f7931a; }
+        
+        .opp-platform-price {
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+        
+        .opp-platform-price.buy { color: var(--accent-green); }
+        .opp-platform-price.sell { color: #ef4444; }
+        
+        .opp-status {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.65rem;
+            color: var(--accent-green);
+        }
+        
+        .opp-status-dot {
+            width: 6px;
+            height: 6px;
+            background: var(--accent-green);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        .no-opportunities {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+        }
+        
+        .platform-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+        
+        .platform-stat {
+            background: var(--bg-secondary);
+            padding: 0.75rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .platform-stat-value {
+            font-size: 1.25rem;
+            font-weight: 700;
+        }
+        
+        .platform-stat-value.polymarket {
+            color: #8b5cf6;
+        }
+        
+        .platform-stat-value.kalshi {
+            color: #f7931a;
+        }
+        
+        .platform-stat-value.matched {
+            color: var(--accent-green);
+        }
+        
+        .platform-stat-value.cross-opp {
+            color: #ff6b35;
+        }
+        
+        .platform-stat-label {
+            font-size: 0.65rem;
+            color: var(--text-secondary);
             margin-top: 0.25rem;
+        }
+        
+        .platform-stat-status {
+            font-size: 0.6rem;
+            margin-top: 0.35rem;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            background: var(--bg-tertiary);
+        }
+        
+        .platform-stat-status.loading {
+            color: var(--accent-yellow);
+            animation: pulse 1.5s infinite;
+        }
+        
+        .platform-stat-status.ready {
+            color: var(--accent-green);
+        }
+        
+        .platform-stat-status.scanning {
+            color: var(--accent-blue);
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .cross-opp-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .cross-opp-item {
+            display: grid;
+            grid-template-columns: auto 1fr auto auto;
+            gap: 1rem;
+            padding: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+            align-items: center;
+            font-size: 0.8rem;
+        }
+        
+        .cross-opp-direction {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        
+        .cross-opp-platform {
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            font-weight: 600;
+        }
+        
+        .cross-opp-platform.buy {
+            background: rgba(0, 255, 136, 0.2);
+            color: var(--accent-green);
+        }
+        
+        .cross-opp-platform.sell {
+            background: rgba(255, 68, 102, 0.2);
+            color: var(--accent-red);
+        }
+        
+        /* Matched Pairs Cards - Like reference design */
+        .matched-pairs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 1rem;
+            max-height: 400px;
+            overflow-y: auto;
+            padding: 0.5rem;
+        }
+        
+        .pair-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1rem;
+            border: 1px solid var(--border-color);
+            transition: all 0.2s ease;
+        }
+        
+        .pair-card:hover {
+            border-color: var(--accent-blue);
+            transform: translateY(-2px);
+        }
+        
+        .pair-card.has-arb {
+            border-color: var(--accent-green);
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.15);
+        }
+        
+        .pair-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.75rem;
+        }
+        
+        .pair-sport-badge {
+            background: linear-gradient(135deg, #4488ff, #2266cc);
+            padding: 0.2rem 0.5rem;
+            border-radius: 6px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        
+        .pair-arb-badge {
+            background: linear-gradient(135deg, #00ff88, #00cc66);
+            color: #000;
+            padding: 0.2rem 0.6rem;
+            border-radius: 6px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        
+        .pair-title {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 0.75rem;
+            line-height: 1.3;
+            color: var(--text-primary);
+        }
+        
+        .pair-platforms {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+        }
+        
+        .platform-box {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 0.6rem;
+            text-align: center;
+        }
+        
+        .platform-name {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .platform-name .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+        
+        .platform-name .dot.polymarket {
+            background: #8b5cf6;
+        }
+        
+        .platform-name .dot.kalshi {
+            background: #f7931a;
+        }
+        
+        .platform-name span {
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        .platform-prices {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+        }
+        
+        .platform-prices .yes {
+            color: var(--accent-green);
+            font-weight: 700;
+        }
+        
+        .platform-prices .no {
+            color: var(--accent-red);
+            font-weight: 700;
+        }
+        
+        .platform-prices .divider {
+            color: var(--text-secondary);
+        }
+        
+        .pair-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 0.75rem;
+            padding-top: 0.5rem;
+            border-top: 1px solid var(--border-color);
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+        }
+        
+        .pair-edge {
+            font-weight: 700;
+            font-size: 0.85rem;
+        }
+        
+        .pair-edge.positive {
+            color: var(--accent-green);
+        }
+        
+        .pair-edge.negative {
+            color: var(--text-secondary);
         }
         
         .uptime-display {
@@ -1006,6 +1465,74 @@ def get_embedded_html() -> str:
             </div>
         </section>
         
+        <!-- Cross-Platform Arbitrage (Polymarket + Kalshi) -->
+        <section class="card cross-platform-card" id="crossPlatformCard">
+            <div class="card-header cross-platform-header">
+                <span class="card-title">🔀 Cross-Platform Arbitrage</span>
+                <span class="cross-platform-badge" id="crossPlatformStatus">DISABLED</span>
+            </div>
+            <div class="card-body">
+                <!-- Matching Progress Bar -->
+                <div id="matchingProgressContainer" style="margin-bottom: 1rem; display: none;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+                        <span style="font-size: 0.8rem; color: var(--text-muted);">🔍 Matching markets by category...</span>
+                        <span id="matchingProgressText" style="font-size: 0.8rem; color: #f7931a;">0%</span>
+                    </div>
+                    <div style="background: var(--bg-secondary); border-radius: 4px; height: 8px; overflow: hidden;">
+                        <div id="matchingProgressBar" style="background: linear-gradient(90deg, #f7931a, #ff6b35); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                    </div>
+                    <div id="matchingStats" style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem;">
+                        Checked: 0 / 0 comparisons | Found: 0 matches
+                    </div>
+                </div>
+                
+                <div class="platform-stats" style="grid-template-columns: repeat(4, 1fr);">
+                    <div class="platform-stat">
+                        <div class="platform-stat-value polymarket" id="polymarketMarkets">0</div>
+                        <div class="platform-stat-label">Polymarket</div>
+                        <div class="platform-stat-status" id="polymarketStatus">Loading...</div>
+                    </div>
+                    <div class="platform-stat">
+                        <div class="platform-stat-value kalshi" id="kalshiMarkets">0</div>
+                        <div class="platform-stat-label">Kalshi</div>
+                        <div class="platform-stat-status" id="kalshiStatus">Loading...</div>
+                    </div>
+                    <div class="platform-stat">
+                        <div class="platform-stat-value matched" id="matchedPairs">0</div>
+                        <div class="platform-stat-label">Matched</div>
+                        <div class="platform-stat-status" id="matchingStatus">Waiting...</div>
+                    </div>
+                    <div class="platform-stat">
+                        <div class="platform-stat-value cross-opp" id="crossOpportunities">0</div>
+                        <div class="platform-stat-label">Arb Found</div>
+                        <div class="platform-stat-status" id="arbStatus">Scanning...</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- 🔥 LIVE OPPORTUNITIES FEED -->
+        <section class="card opportunities-feed">
+            <div class="card-header">
+                <span class="card-title">🔥 Live Arbitrage Opportunities</span>
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <span class="opp-status">
+                        <span class="opp-status-dot"></span>
+                        Scanning
+                    </span>
+                    <span id="oppCount" style="font-size: 0.75rem; color: var(--accent-green); font-weight: 600;">0 found</span>
+                </div>
+            </div>
+            <div class="card-body" id="opportunitiesFeed">
+                <div class="no-opportunities" id="noOpportunities">
+                    <div style="font-size: 2.5rem; margin-bottom: 1rem;">🔍</div>
+                    <div style="font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem;">Scanning for arbitrage...</div>
+                    <div style="font-size: 0.8rem;">Checking Polymarket, Kalshi, and cross-platform opportunities</div>
+                </div>
+                <!-- Opportunities will be inserted here dynamically -->
+            </div>
+        </section>
+        
         <!-- Opportunity Timing -->
         <section class="card timing-card">
             <div class="card-header">
@@ -1163,6 +1690,9 @@ def get_embedded_html() -> str:
             
             // Operational
             updateOperational();
+            
+            // Cross-Platform
+            updateCrossPlatform();
             
             // Markets
             updateMarkets();
@@ -1367,9 +1897,20 @@ def get_embedded_html() -> str:
         
         function updateOperational() {
             const op = state.operational || {};
+            const cp = state.cross_platform || {};
             
-            // Update stats
-            document.getElementById('totalMarkets').textContent = op.total_markets || 0;
+            // Show combined market count (Polymarket + Kalshi)
+            const polyCount = cp.polymarket_markets || 0;
+            const kalshiCount = cp.kalshi_markets || 0;
+            const totalCombined = polyCount + kalshiCount;
+            
+            // Update stats - show combined if cross-platform is enabled
+            const totalEl = document.getElementById('totalMarkets');
+            if (cp.enabled && totalCombined > 0) {
+                totalEl.innerHTML = `<span style="color: #8b5cf6;">${polyCount.toLocaleString()}</span> + <span style="color: #f7931a;">${kalshiCount.toLocaleString()}</span>`;
+            } else {
+                totalEl.textContent = op.total_markets || 0;
+            }
             document.getElementById('marketsWithData').textContent = op.markets_with_orderbooks || 0;
             document.getElementById('marketsWithPrices').textContent = op.markets_with_prices || 0;
             document.getElementById('orderbookUpdates').textContent = formatNumber(op.orderbook_updates || 0);
@@ -1430,13 +1971,394 @@ def get_embedded_html() -> str:
             return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         }
         
+        function updateCrossPlatform() {
+            const cp = state.cross_platform || {};
+            
+            // Update status badge
+            const statusEl = document.getElementById('crossPlatformStatus');
+            if (cp.enabled) {
+                statusEl.textContent = 'ACTIVE';
+                statusEl.style.background = 'linear-gradient(135deg, #00ff88, #00cc66)';
+            } else {
+                statusEl.textContent = 'DISABLED';
+                statusEl.style.background = 'linear-gradient(135deg, #666, #444)';
+            }
+            
+            // Update stats
+            const polyCount = cp.polymarket_markets || 0;
+            const kalshiCount = cp.kalshi_markets || 0;
+            const matchedCount = cp.matched_pairs || 0;
+            const kalshiObs = cp.kalshi_orderbooks || 0;
+            
+            document.getElementById('polymarketMarkets').textContent = polyCount.toLocaleString();
+            document.getElementById('kalshiMarkets').textContent = kalshiCount.toLocaleString();
+            document.getElementById('matchedPairs').textContent = matchedCount;
+            document.getElementById('kalshiOrderbooks').textContent = kalshiObs;
+            
+            // Update status indicators with loading animation
+            const polyStatus = document.getElementById('polymarketStatus');
+            const kalshiStatus = document.getElementById('kalshiStatus');
+            
+            // Polymarket status
+            if (polyCount >= 5000) {
+                polyStatus.textContent = '✓ Loaded';
+                polyStatus.className = 'platform-stat-status ready';
+            } else if (polyCount > 0) {
+                polyStatus.textContent = `⏳ ${polyCount.toLocaleString()}...`;
+                polyStatus.className = 'platform-stat-status loading';
+            } else {
+                polyStatus.textContent = '⏳ Loading...';
+                polyStatus.className = 'platform-stat-status loading';
+            }
+            
+            // Kalshi status
+            if (kalshiCount >= 5000) {
+                kalshiStatus.textContent = '✓ Loaded';
+                kalshiStatus.className = 'platform-stat-status ready';
+            } else if (kalshiCount > 0) {
+                kalshiStatus.textContent = `⏳ ${kalshiCount.toLocaleString()}...`;
+                kalshiStatus.className = 'platform-stat-status loading';
+            } else {
+                kalshiStatus.textContent = '⏳ Loading...';
+                kalshiStatus.className = 'platform-stat-status loading';
+            }
+            
+            const matchStatus = document.getElementById('matchingStatus');
+            const kalshiObStatus = document.getElementById('kalshiObStatus');
+            
+            const matchingStatus = cp.matching_status || 'idle';
+            const matchingProgress = cp.matching_progress || 0;
+            const matchingChecked = cp.matching_checked || 0;
+            const matchingTotal = cp.matching_total || 0;
+            
+            // Update progress bar
+            const progressContainer = document.getElementById('matchingProgressContainer');
+            const progressBar = document.getElementById('matchingProgressBar');
+            const progressText = document.getElementById('matchingProgressText');
+            const matchingStatsEl = document.getElementById('matchingStats');
+            
+            if (matchingStatus === 'matching' || matchingStatus === 'starting') {
+                progressContainer.style.display = 'block';
+                progressBar.style.width = `${matchingProgress}%`;
+                progressText.textContent = `${matchingProgress}%`;
+                matchingStatsEl.textContent = `Checked: ${matchingChecked.toLocaleString()} / ${matchingTotal.toLocaleString()} | Found: ${matchedCount} matches`;
+                matchStatus.textContent = `🔍 ${matchingProgress}%`;
+                matchStatus.className = 'platform-stat-status scanning';
+            } else if (matchingStatus === 'complete') {
+                progressContainer.style.display = 'none';
+                matchStatus.textContent = `✓ ${matchedCount} pairs`;
+                matchStatus.className = 'platform-stat-status ready';
+            } else if (polyCount > 0 && kalshiCount > 0) {
+                progressContainer.style.display = 'none';
+                matchStatus.textContent = '⏳ Starting...';
+                matchStatus.className = 'platform-stat-status loading';
+            } else {
+                progressContainer.style.display = 'none';
+                matchStatus.textContent = 'Waiting...';
+                matchStatus.className = 'platform-stat-status';
+            }
+            
+            if (kalshiObs > 0) {
+                kalshiObStatus.textContent = `${kalshiObs} fetched`;
+                kalshiObStatus.className = 'platform-stat-status ready';
+            } else if (matchedCount > 0) {
+                kalshiObStatus.textContent = '⏳ Fetching...';
+                kalshiObStatus.className = 'platform-stat-status loading';
+            }
+            
+            const crossOpps = cp.cross_opportunities || [];
+            const matchedPairsData = cp.matched_pairs_data || [];
+            document.getElementById('crossOpportunities').textContent = crossOpps.length;
+            
+            // 🔥 Update Live Opportunities Feed
+            updateOpportunitiesFeed(state, cp, matchedPairsData);
+            
+            // Update arb status
+            const arbStatus = document.getElementById('arbStatus');
+            if (crossOpps.length > 0) {
+                arbStatus.textContent = `🎯 ${crossOpps.length} found!`;
+                arbStatus.className = 'platform-stat-status ready';
+            } else if (matchedCount > 0) {
+                arbStatus.textContent = '🔍 Scanning...';
+                arbStatus.className = 'platform-stat-status scanning';
+            } else {
+                arbStatus.textContent = 'Waiting...';
+                arbStatus.className = 'platform-stat-status';
+            }
+            
+            // Update matched pairs grid
+            const grid = document.getElementById('matchedPairsGrid');
+            if (!cp.enabled) {
+                grid.innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 2rem; grid-column: 1 / -1;"><div style="font-size: 2rem; margin-bottom: 0.5rem;">⏸️</div><div>Cross-platform mode disabled</div></div>';
+                return;
+            }
+            
+            if (matchedPairsData.length === 0 && crossOpps.length === 0) {
+                const polyCount = cp.polymarket_markets || 0;
+                const kalshiCount = cp.kalshi_markets || 0;
+                grid.innerHTML = `<div style="text-align: center; color: var(--text-secondary); padding: 2rem; grid-column: 1 / -1;">
+                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔍</div>
+                    <div>Scanning ${polyCount.toLocaleString()} Polymarket & ${kalshiCount.toLocaleString()} Kalshi markets...</div>
+                    <div style="font-size: 0.8rem; margin-top: 0.5rem;">Looking for matching NFL, NBA, Politics, Crypto predictions</div>
+                </div>`;
+                return;
+            }
+            
+            // Render matched pairs as cards (show opportunities first, then other pairs)
+            const allPairs = [...crossOpps.map(o => ({...o, hasArb: true})), ...matchedPairsData.slice(0, 20)];
+            
+            grid.innerHTML = allPairs.slice(0, 12).map((pair, idx) => {
+                const hasArb = pair.hasArb || false;
+                const edgePct = ((pair.edge_pct || 0) * 100);
+                const category = detectCategory(pair.poly_question || pair.market_pair || '');
+                
+                return `
+                    <div class="pair-card ${hasArb ? 'has-arb' : ''}">
+                        <div class="pair-header">
+                            <span class="pair-sport-badge">${category}</span>
+                            ${hasArb ? '<span class="pair-arb-badge">⚡ Arb Available</span>' : ''}
+                        </div>
+                        <div class="pair-title">${truncate(pair.poly_question || pair.kalshi_title || 'Market ' + (idx + 1), 60)}</div>
+                        <div class="pair-platforms">
+                            <div class="platform-box">
+                                <div class="platform-name">
+                                    <span class="dot polymarket"></span>
+                                    <span>Polymarket</span>
+                                </div>
+                                <div class="platform-prices">
+                                    <span class="yes">${formatPct(pair.poly_yes || pair.buy_price)}</span>
+                                    <span class="divider">/</span>
+                                    <span class="no">${formatPct(pair.poly_no || (1 - (pair.buy_price || 0.5)))}</span>
+                                </div>
+                            </div>
+                            <div class="platform-box">
+                                <div class="platform-name">
+                                    <span class="dot kalshi"></span>
+                                    <span>Kalshi</span>
+                                </div>
+                                <div class="platform-prices">
+                                    <span class="yes">${formatPct(pair.kalshi_yes || pair.sell_price)}</span>
+                                    <span class="divider">/</span>
+                                    <span class="no">${formatPct(pair.kalshi_no || (1 - (pair.sell_price || 0.5)))}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="pair-footer">
+                            <span>Similarity: ${((pair.similarity || 0.8) * 100).toFixed(0)}%</span>
+                            <span class="pair-edge ${edgePct > 1 ? 'positive' : 'negative'}">
+                                ${hasArb ? `Edge: +${edgePct.toFixed(1)}%` : 'No arb'}
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        // 🔥 Live Opportunities Feed Renderer
+        function updateOpportunitiesFeed(state, cp, matchedPairs) {
+            const feed = document.getElementById('opportunitiesFeed');
+            const noOpps = document.getElementById('noOpportunities');
+            const oppCount = document.getElementById('oppCount');
+            
+            // Collect ALL opportunities: bundle arb, cross-platform, and potential matches
+            let allOpportunities = [];
+            
+            // 1. Add Polymarket bundle arbitrage opportunities
+            const bundleOpps = state.opportunities || [];
+            bundleOpps.forEach(opp => {
+                allOpportunities.push({
+                    type: 'polymarket',
+                    title: opp.market_question || 'Bundle Arbitrage',
+                    category: detectCategory(opp.market_question || ''),
+                    edge: opp.net_edge_pct || opp.edge_pct || 0,
+                    platform1: { name: 'Polymarket', price: opp.yes_price || 0.5, action: 'BUY YES' },
+                    platform2: { name: 'Polymarket', price: opp.no_price || 0.5, action: 'BUY NO' },
+                    marketInfo: 'Bundle: YES + NO < 100%'
+                });
+            });
+            
+            // 2. Add cross-platform opportunities
+            const crossOpps = cp.cross_opportunities || [];
+            crossOpps.forEach(opp => {
+                allOpportunities.push({
+                    type: 'cross-platform',
+                    title: opp.market_pair || opp.token || 'Cross-Platform Arb',
+                    category: detectCategory(opp.market_pair || opp.token || ''),
+                    edge: opp.edge_pct || 0,
+                    platform1: { name: opp.buy_platform || 'Polymarket', price: opp.buy_price || 0, action: 'BUY' },
+                    platform2: { name: opp.sell_platform || 'Kalshi', price: opp.sell_price || 0, action: 'SELL' },
+                    marketInfo: `${opp.buy_platform} vs ${opp.sell_platform}`
+                });
+            });
+            
+            // 3. Add matched pairs as potential opportunities (show best matches)
+            if (matchedPairs && matchedPairs.length > 0) {
+                matchedPairs.slice(0, 20).forEach(pair => {
+                    // Only show high similarity matches
+                    if ((pair.similarity || 0) >= 0.6) {
+                        allOpportunities.push({
+                            type: 'matched',
+                            title: pair.poly_question || pair.kalshi_title || 'Matched Market',
+                            category: detectCategory(pair.poly_question || pair.kalshi_title || ''),
+                            edge: 0, // No arb found yet
+                            similarity: pair.similarity || 0,
+                            platform1: { name: 'Polymarket', price: pair.poly_yes || 0, action: 'Market' },
+                            platform2: { name: 'Kalshi', price: pair.kalshi_yes || 0, action: 'Market' },
+                            marketInfo: `Match: ${((pair.similarity || 0) * 100).toFixed(0)}% similar`
+                        });
+                    }
+                });
+            }
+            
+            // Sort by edge (highest first)
+            allOpportunities.sort((a, b) => (b.edge || 0) - (a.edge || 0));
+            
+            // Update count
+            const arbCount = allOpportunities.filter(o => o.edge > 0).length;
+            oppCount.textContent = arbCount > 0 ? `${arbCount} ARB found!` : `${allOpportunities.length} matches`;
+            
+            // If no opportunities, show scanning message
+            if (allOpportunities.length === 0) {
+                noOpps.style.display = 'block';
+                return;
+            }
+            
+            noOpps.style.display = 'none';
+            
+            // Render opportunity cards
+            const cardsHTML = allOpportunities.slice(0, 15).map(opp => {
+                const edgePct = (opp.edge * 100).toFixed(2);
+                const hasArb = opp.edge > 0;
+                const cardClass = opp.type === 'cross-platform' ? 'cross-platform' : 
+                                  opp.type === 'polymarket' ? 'polymarket' : 'kalshi';
+                const badgeClass = getBadgeClass(opp.category);
+                
+                return `
+                    <div class="opp-card ${cardClass}">
+                        <div class="opp-header">
+                            <div class="opp-category">
+                                <span class="opp-badge ${badgeClass}">${opp.category}</span>
+                                ${opp.type === 'cross-platform' ? '<span class="opp-badge cross">CROSS</span>' : ''}
+                            </div>
+                            ${hasArb ? 
+                                `<div class="opp-edge">+${edgePct}%</div>` : 
+                                (opp.similarity ? `<div style="color: var(--text-muted); font-size: 0.8rem;">${(opp.similarity * 100).toFixed(0)}% match</div>` : '')
+                            }
+                        </div>
+                        <div class="opp-title">${truncate(opp.title, 70)}</div>
+                        <div class="opp-market-info">
+                            <span style="opacity: 0.6;">📊</span> ${opp.marketInfo}
+                            ${hasArb ? '<span style="margin-left: 0.5rem; color: var(--accent-green);">● Active</span>' : ''}
+                        </div>
+                        <div class="opp-platforms">
+                            <div class="opp-platform-row">
+                                <div class="opp-platform-name">
+                                    <span class="opp-platform-icon ${opp.platform1.name.toLowerCase().includes('poly') ? 'poly' : 'kalshi'}">
+                                        ${opp.platform1.name.charAt(0)}
+                                    </span>
+                                    ${opp.platform1.name}
+                                    ${hasArb ? '<span style="margin-left: auto; font-size: 0.65rem; color: var(--accent-green);">↗</span>' : ''}
+                                </div>
+                                <div class="opp-platform-price ${hasArb ? 'buy' : ''}">${formatPct(opp.platform1.price)}</div>
+                            </div>
+                            <div class="opp-platform-row">
+                                <div class="opp-platform-name">
+                                    <span class="opp-platform-icon ${opp.platform2.name.toLowerCase().includes('kalshi') ? 'kalshi' : 'poly'}">
+                                        ${opp.platform2.name.charAt(0)}
+                                    </span>
+                                    ${opp.platform2.name}
+                                    ${hasArb ? '<span style="margin-left: auto; font-size: 0.65rem; color: #ef4444;">↘</span>' : ''}
+                                </div>
+                                <div class="opp-platform-price ${hasArb ? 'sell' : ''}">${formatPct(opp.platform2.price)}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            // Insert before the noOpportunities div
+            feed.innerHTML = cardsHTML + '<div class="no-opportunities" id="noOpportunities" style="display: none;"></div>';
+        }
+        
+        function getBadgeClass(category) {
+            const cat = category.toLowerCase();
+            if (cat.includes('nfl') || cat.includes('football')) return 'nfl';
+            if (cat.includes('nba') || cat.includes('basketball')) return 'nba';
+            if (cat.includes('politic') || cat.includes('trump') || cat.includes('election')) return 'politics';
+            if (cat.includes('crypto') || cat.includes('bitcoin')) return 'crypto';
+            if (cat.includes('soccer') || cat.includes('premier') || cat.includes('league')) return 'soccer';
+            return '';
+        }
+        
+        function detectCategory(text) {
+            const t = text.toLowerCase();
+            if (t.includes('nfl') || t.includes('football') || t.includes('bears') || t.includes('chiefs') || t.includes('packers')) return 'NFL';
+            if (t.includes('nba') || t.includes('basketball') || t.includes('lakers') || t.includes('celtics')) return 'NBA';
+            if (t.includes('trump') || t.includes('biden') || t.includes('election') || t.includes('president')) return 'Politics';
+            if (t.includes('bitcoin') || t.includes('btc') || t.includes('ethereum') || t.includes('crypto')) return 'Crypto';
+            if (t.includes('fed') || t.includes('rate') || t.includes('inflation')) return 'Finance';
+            return 'Other';
+        }
+        
+        function formatPct(val) {
+            if (val === undefined || val === null) return '??%';
+            return (val * 100).toFixed(0) + '%';
+        }
+        
+        function truncate(str, len) {
+            if (!str) return '';
+            return str.length > len ? str.substring(0, len) + '...' : str;
+        }
+        
         function updateMarkets() {
             const list = document.getElementById('marketList');
             const markets = state.markets || {};
             const marketIds = Object.keys(markets);
+            const cp = state.cross_platform || {};
             
+            // Show cross-platform matched pairs if available
+            const matchedPairs = cp.matched_pairs_data || [];
+            
+            // If we have matched pairs from cross-platform, show those
+            if (matchedPairs.length > 0) {
+                list.innerHTML = matchedPairs.slice(0, 10).map((pair, idx) => {
+                    const category = detectCategory(pair.poly_question || pair.kalshi_title || '');
+                    const similarity = ((pair.similarity || 0) * 100).toFixed(0);
+                    return `
+                        <div class="market-item">
+                            <div class="market-question">
+                                <span class="opp-badge" style="font-size: 0.6rem; margin-right: 0.5rem;">${category}</span>
+                                ${truncate(pair.poly_question || pair.kalshi_title || 'Market', 50)}
+                            </div>
+                            <div class="market-prices">
+                                <span style="color: #8b5cf6; font-size: 0.7rem;">P: ${pair.poly_yes ? formatPct(pair.poly_yes) : '--'}</span>
+                                <span style="color: #f7931a; font-size: 0.7rem;">K: ${pair.kalshi_yes ? formatPct(pair.kalshi_yes) : '--'}</span>
+                                <span style="color: var(--text-muted); font-size: 0.65rem;">${similarity}% match</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                return;
+            }
+            
+            // Show Polymarket markets if available
             if (marketIds.length === 0) {
-                list.innerHTML = '<div class="empty-state"><div class="empty-icon">📈</div><div>No markets loaded</div></div>';
+                const polyCount = cp.polymarket_markets || 0;
+                const kalshiCount = cp.kalshi_markets || 0;
+                
+                if (polyCount > 0 || kalshiCount > 0) {
+                    list.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-icon">🔄</div>
+                            <div>Loading orderbooks...</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem;">
+                                ${polyCount.toLocaleString()} Polymarket + ${kalshiCount.toLocaleString()} Kalshi markets
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    list.innerHTML = '<div class="empty-state"><div class="empty-icon">📈</div><div>Loading markets...</div></div>';
+                }
                 return;
             }
             

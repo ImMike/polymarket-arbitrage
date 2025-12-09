@@ -1,12 +1,13 @@
-# Polymarket Arbitrage Bot
+# Polymarket + Kalshi Arbitrage Bot
 
 <div align="center">
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)
+![Platforms](https://img.shields.io/badge/Platforms-Polymarket%20%7C%20Kalshi-orange.svg)
 
-**A real-time arbitrage detection and market-making bot for Polymarket prediction markets**
+**Cross-platform arbitrage detection between Polymarket and Kalshi prediction markets**
 
 [Features](#-features) • [Demo](#-demo) • [Quick Start](#-quick-start) • [Dashboard](#-live-dashboard) • [Configuration](#%EF%B8%8F-configuration)
 
@@ -44,6 +45,7 @@
 
 ## 🎯 Features
 
+- **🔀 Cross-Platform Arbitrage** - Detects price differences between Polymarket and Kalshi for the same prediction
 - **🔍 Bundle Arbitrage Detection** - Identifies when YES + NO prices don't sum to ~$1.00
 - **📊 Market Making** - Captures spreads by placing competitive bid/ask orders  
 - **🛡️ Risk Management** - Position limits, loss limits, kill switch
@@ -51,6 +53,7 @@
 - **🔄 Dual Data Modes** - Switch between real market data and simulation
 - **💰 Fee Accounting** - Realistic edge calculations including fees & gas costs
 - **📝 Comprehensive Logging** - Detailed logs for trades, opportunities, and errors
+- **🤖 Market Matching AI** - Automatically matches similar predictions across platforms using text similarity
 
 ---
 
@@ -93,13 +96,18 @@ polymarket-arbitrage/
 ├── config.yaml               # Configuration (edit this!)
 ├── requirements.txt          # Python dependencies
 │
-├── polymarket_client/        # API client
+├── polymarket_client/        # Polymarket API client
 │   ├── api.py               # REST + WebSocket integration
 │   └── models.py            # Data classes
 │
+├── kalshi_client/            # Kalshi API client (NEW!)
+│   ├── api.py               # Kalshi REST API integration
+│   └── models.py            # Kalshi data classes
+│
 ├── core/                     # Trading logic
 │   ├── data_feed.py         # Real-time market data manager
-│   ├── arb_engine.py        # Opportunity detection
+│   ├── arb_engine.py        # Single-platform opportunity detection
+│   ├── cross_platform_arb.py # Cross-platform arbitrage (NEW!)
 │   ├── execution.py         # Order management
 │   ├── risk_manager.py      # Risk limits & kill switch
 │   └── portfolio.py         # Position & PnL tracking
@@ -147,7 +155,9 @@ Edit `config.yaml`:
 ```yaml
 mode:
   trading_mode: "dry_run"     # Start with dry run!
-  data_mode: "simulation"     # Use "real" for live data
+  data_mode: "real"           # Use "simulation" for demos
+  cross_platform_enabled: true  # Enable Polymarket + Kalshi arbitrage
+  kalshi_enabled: true        # Enable Kalshi monitoring
 
 trading:
   min_edge: 0.01              # 1% minimum edge
@@ -205,9 +215,25 @@ Access at `http://localhost:8000` when running with `run_with_dashboard.py`
 
 ## 📈 Trading Strategies
 
+### 🔀 Cross-Platform Arbitrage (NEW!)
+
+Detects when the same prediction is priced differently on Polymarket vs Kalshi:
+
+| Condition | Action | Profit |
+|-----------|--------|--------|
+| Polymarket YES cheaper than Kalshi YES | Buy on Polymarket, Sell on Kalshi | Price difference |
+| Kalshi YES cheaper than Polymarket YES | Buy on Kalshi, Sell on Polymarket | Price difference |
+
+**Example**: 
+- "Will Trump win?" YES is **$0.52** on Polymarket
+- Same prediction YES is **$0.58** on Kalshi
+- **Profit opportunity**: Buy on Polymarket, sell on Kalshi = **6% edge** (minus fees)
+
+The bot uses **text similarity matching** to automatically find equivalent predictions across platforms.
+
 ### Bundle Arbitrage
 
-Detects when YES + NO tokens are mispriced:
+Detects when YES + NO tokens are mispriced within a single platform:
 
 | Condition | Action | Profit |
 |-----------|--------|--------|
@@ -233,7 +259,10 @@ Places orders inside wide spreads:
 | Section | Parameter | Description | Default |
 |---------|-----------|-------------|---------|
 | `mode` | `trading_mode` | `"dry_run"` or `"live"` | `dry_run` |
-| `mode` | `data_mode` | `"simulation"` or `"real"` | `simulation` |
+| `mode` | `data_mode` | `"simulation"` or `"real"` | `real` |
+| `mode` | `cross_platform_enabled` | Enable Polymarket + Kalshi | `true` |
+| `mode` | `kalshi_enabled` | Enable Kalshi monitoring | `true` |
+| `mode` | `min_match_similarity` | Market matching threshold | 0.6 |
 | `trading` | `min_edge` | Min profit after fees | 0.01 (1%) |
 | `trading` | `min_spread` | Min spread for MM | 0.05 (5¢) |
 | `trading` | `mm_enabled` | Enable market making | true |
@@ -279,28 +308,32 @@ pytest tests/ --cov=core --cov=polymarket_client
 ## 📊 How It Works
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         DATA FLOW                               │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │
-│  │  Polymarket  │───▶│  Data Feed   │───▶│  Arb Engine  │      │
-│  │  APIs        │    │  (orderbooks)│    │  (detection) │      │
-│  └──────────────┘    └──────────────┘    └──────┬───────┘      │
-│                                                  │              │
-│                                                  ▼              │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │
-│  │  Dashboard   │◀───│  Portfolio   │◀───│  Execution   │      │
-│  │  (web UI)    │    │  (tracking)  │    │  (orders)    │      │
-│  └──────────────┘    └──────────────┘    └──────────────┘      │
-│                             ▲                    │              │
-│                             │                    ▼              │
-│                      ┌──────────────┐    ┌──────────────┐      │
-│                      │   Logging    │◀───│    Risk      │      │
-│                      │              │    │   Manager    │      │
-│                      └──────────────┘    └──────────────┘      │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      CROSS-PLATFORM ARBITRAGE FLOW                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌──────────────┐         ┌───────────────┐         ┌──────────────┐       │
+│  │  Polymarket  │────────▶│  Market       │◀────────│    Kalshi    │       │
+│  │  5000+ mkts  │         │  Matcher      │         │  5000+ mkts  │       │
+│  └──────────────┘         └───────┬───────┘         └──────────────┘       │
+│         │                         │                        │                │
+│         │                    Matched Pairs                 │                │
+│         │                         │                        │                │
+│         ▼                         ▼                        ▼                │
+│  ┌──────────────┐         ┌───────────────┐         ┌──────────────┐       │
+│  │  Data Feed   │────────▶│ Cross-Platform│◀────────│  Kalshi      │       │
+│  │  (orderbooks)│         │  Arb Engine   │         │  Orderbooks  │       │
+│  └──────────────┘         └───────┬───────┘         └──────────────┘       │
+│         │                         │                        │                │
+│         │                    Opportunities                 │                │
+│         │                         │                        │                │
+│         ▼                         ▼                        ▼                │
+│  ┌──────────────┐         ┌───────────────┐         ┌──────────────┐       │
+│  │  Dashboard   │◀────────│   Execution   │────────▶│  Portfolio   │       │
+│  │  (live UI)   │         │   (orders)    │         │  (tracking)  │       │
+│  └──────────────┘         └───────────────┘         └──────────────┘       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -325,6 +358,14 @@ pytest tests/ --cov=core --cov=polymarket_client
 - No gas fees for trading (Polymarket covers them)
 - Funds are held in USDC on Polygon
 - API keys required for live trading
+
+### Kalshi Notes
+
+- Kalshi is a **CFTC-regulated** US prediction market exchange
+- Prices are in cents (e.g., 55¢ for YES)
+- No authentication required for public market data
+- Must be US-based to trade (KYC required)
+- API documentation: [docs.kalshi.com](https://docs.kalshi.com)
 
 ---
 

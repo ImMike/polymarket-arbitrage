@@ -2,10 +2,13 @@
 # ========================================
 
 api:
-  # Polymarket API endpoints (placeholders - update with real endpoints)
+  # Polymarket API endpoints
   polymarket_rest_url: "https://clob.polymarket.com"
   polymarket_ws_url: "wss://ws-subscriptions-clob.polymarket.com/ws/market"
   gamma_api_url: "https://gamma-api.polymarket.com"
+  
+  # Kalshi API endpoint (public, no auth needed for market data)
+  kalshi_api_url: "https://api.elections.kalshi.com/trade-api/v2"
   
   # Authentication (replace with your credentials)
   api_key: "YOUR_API_KEY_HERE"
@@ -31,7 +34,7 @@ trading:
   # Market-making settings
   min_spread: 0.05         # 5c spread to act as market maker
   tick_size: 0.01          # Minimum price increment
-  mm_enabled: true         # Enabled for demo
+  mm_enabled: false        # Disabled for real data (markets too efficient)
   
   # Order sizing - SMALL for $50 budget
   default_order_size: 5    # $5 per order
@@ -75,7 +78,12 @@ mode:
   # Data mode: "real" or "simulation"
   # - "real": Fetch actual order books from Polymarket CLOB API
   # - "simulation": Generate fake data with opportunities (for demos/screenshots)
-  data_mode: "simulation"  # <-- CHANGE TO "real" FOR LIVE DATA
+  data_mode: "real"  # <-- CHANGE TO "simulation" FOR DEMOS
+  
+  # Cross-platform arbitrage (Polymarket + Kalshi)
+  cross_platform_enabled: true    # Enable cross-platform arbitrage detection
+  kalshi_enabled: true            # Enable Kalshi market monitoring
+  min_match_similarity: 0.6       # Minimum similarity score for market matching (0-1)
   
   # Dry run settings
   dry_run_initial_balance: 10000
